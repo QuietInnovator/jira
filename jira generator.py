@@ -30,7 +30,7 @@ then optionally POST it to **Webhook.site** (or any webhook endpoint).
 
 # ---------- INPUTS ----------
 uploaded = st.file_uploader("📄  Upload a .txt file", type=["txt"])
-webhook_url ="https://webhook.site/ed6f4c48-b427-4e79-afb4-b3e23b1a0139"
+webhook_url =st.secrets.get("WEBHOOK")
 # ---------- GENERATE ----------
 if st.button("Generate Jira JSON") and uploaded:
     text = uploaded.read().decode("utf‑8", errors="ignore")
