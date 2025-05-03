@@ -22,7 +22,7 @@ if not openai.api_key:
     st.stop()
 
 # ---------- TITLE ----------
-st.title("🧾 Jira Task JSON Generator")
+st.title("🧾 auto summarizationr")
 st.write("""
 Upload a plain‑text file, let GPT build a Jira issue payload,  
 then optionally POST it to **Webhook.site** (or any webhook endpoint).
@@ -30,7 +30,8 @@ then optionally POST it to **Webhook.site** (or any webhook endpoint).
 
 # ---------- INPUTS ----------
 uploaded = st.file_uploader("📄  Upload a .txt file", type=["txt"])
-webhook_url =st.secrets.get("WEBHOOK")
+webhook_url = st.secrets.get("WEBHOOK")
+
 # ---------- GENERATE ----------
 if st.button("Generate Jira JSON") and uploaded:
     text = uploaded.read().decode("utf‑8", errors="ignore")
@@ -38,9 +39,33 @@ if st.button("Generate Jira JSON") and uploaded:
     st.subheader("Input text")
     st.text_area("Contents", text, height=200, disabled=True)
 
+    # --- Summarize ---
+    summarize_prompt = f"""
+Summarize the following meeting notes or text into clear, concise bullet points.
+
+Input:
+\"\"\"{text}\"\"\"
+
+Bullet points:
+"""
+    with st.spinner("Summarizing meeting notes..."):
+        try:
+            summary_resp = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": summarize_prompt}],
+                temperature=0.3,
+            )
+            summary = summary_resp.choices[0].message.content
+            st.subheader("Meeting Summary")
+            st.markdown(summary)
+        except Exception as e:
+            st.error(f"❌ Summarization error: {e}")
+            st.stop()
+
+    # --- Generate Jira JSON ---
     prompt = f"""
 You convert user requests into Jira tasks.  
-Parse the following text and output *only* valid JSON suitable for the Jira issue‑creation REST API.
+Parse the following text and output *only* valid JSON suitable for the Jira issue-creation REST API.
 
 Input:
 \"\"\"{text}\"\"\"
@@ -57,34 +82,39 @@ Required shape:
   }}
 }}
 """
-
-    with st.spinner("Calling OpenAI…"):
+    with st.spinner("Calling OpenAI..."):
         try:
             resp = openai.chat.completions.create(
-                model="gpt-4o-mini",   # swap to "gpt-4o" / "gpt-4" if you like
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
             )
             raw = resp.choices[0].message.content
-            # Extract the first JSON object in the reply
             start, end = raw.find("{"), raw.rfind("}") + 1
             jira_json = json.loads(raw[start:end])
         except Exception as e:
             st.error(f"❌ OpenAI error or invalid JSON: {e}")
             st.stop()
 
-    # Persist it for later button clicks
     st.session_state["jira_json"] = jira_json
-
     st.success("✅ Generated!")
-    st.json(jira_json)
 
-# ---------- DISPLAY SAVED JSON ----------
-if "jira_json" in st.session_state:
-    st.subheader("Generated Jira JSON")
-    st.json(st.session_state["jira_json"])
+    # --- Display Editable JSON ---
+    json_str = json.dumps(st.session_state["jira_json"], indent=2)
+    edited_json_str = st.text_area(
+        "Edit the JSON below before sending:",
+        value=json_str,
+        height=300,
+        key="edited_json"
+    )
+    try:
+        edited_json = json.loads(edited_json_str)
+        st.session_state["jira_json"] = edited_json
+    except json.JSONDecodeError as e:
+        st.error(f"❌ Invalid JSON: {e}")
+        st.stop()
 
-    # ---------- SEND ----------
+    # --- Send to Webhook ---
     if st.button("Send JSON to Webhook") and webhook_url:
         try:
             r = requests.post(
